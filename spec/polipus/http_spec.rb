@@ -8,11 +8,15 @@ describe Polipus::HTTP do
   it 'should download a page' do
     VCR.use_cassette('http_test') do
       http = Polipus::HTTP.new
-      page = http.fetch_page('http://sfbay.craigslist.org/apa/')
+      user_data = {
+        'mydata' => 'myvalue'
+      }
+      page = http.fetch_page('http://sfbay.craigslist.org/apa/', '', 0, user_data)
       expect(page).to be_an_instance_of(Polipus::Page)
       expect(page.doc.search('title').text.strip).to eq 'SF bay area apts/housing for rent classifieds  - craigslist'
       expect(page.fetched_at).not_to be_nil
       expect(page.fetched?).to be_truthy
+      expect(page.user_data).to eq user_data
     end
   end
 
@@ -105,6 +109,34 @@ describe Polipus::HTTP do
       VCR.use_cassette('http_errors') do
         http = Polipus::HTTP.new(open_timeout: 1, read_timeout: 1)
         expect(http.fetch_page('http://www.wrong-domain.lol/').error).not_to be_nil
+      end
+    end
+  end
+
+  describe 'random user_agent' do
+    context 'when user_agent is string' do
+      it '#user_agent' do
+        http = Polipus::HTTP.new(open_timeout: 1, read_timeout: 1, user_agent: 'Googlebot')
+        expect(http.user_agent).to eq('Googlebot')
+      end
+    end
+
+    context 'when user_agent is list' do
+      let(:user_agents) do
+        ['Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/535.1 (KHTML, like Gecko) Chrome/13.0.782.24 Safari/535.1',
+         'Mozilla/5.0 (Windows NT 6.0) AppleWebKit/535.2 (KHTML, like Gecko) Chrome/15.0.874.120 Safari/535.2',
+         'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/535.7 (KHTML, like Gecko) Chrome/16.0.912.36 Safari/535.7',
+         'Mozilla/5.0 (Windows; U; Windows NT 6.0 x64; en-US; rv:1.9pre) Gecko/2008072421 Minefield/3.0.2pre',
+         'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.9.0.10) Gecko/2009042316 Firefox/3.0.10',
+         'Mozilla/5.0 (Windows; U; Windows NT 6.0; en-GB; rv:1.9.0.11) Gecko/2009060215 Firefox/3.0.11 (.NET CLR 3.5.30729)',
+         'Mozilla/5.0 (Windows; U; Windows NT 6.0; en-US; rv:1.9.1.6) Gecko/20091201 Firefox/3.5.6 GTB5',
+         'Mozilla/5.0 (Windows; U; Windows NT 5.1; tr; rv:1.9.2.8) Gecko/20100722 Firefox/3.6.8 ( .NET CLR 3.5.30729; .NET4.0E)'
+        ]
+      end
+
+      it '#user_agent' do
+        http = Polipus::HTTP.new(open_timeout: 1, read_timeout: 1, user_agent: user_agents)
+        expect(user_agents).to include(http.user_agent)
       end
     end
   end

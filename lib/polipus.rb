@@ -129,7 +129,14 @@ module Polipus
 
       @urls = [urls].flatten.map { |url| URI(url) }
       @urls.each { |url| url.path = '/' if url.path.empty? }
-      @robots = Polipus::Robotex.new(@options[:user_agent]) if @options[:obey_robots_txt]
+      if @options[:obey_robots_txt]
+        @robots =
+          if @options[:user_agent].respond_to?(:sample)
+            Polipus::Robotex.new(@options[:user_agent].sample)
+          else
+            Polipus::Robotex.new(@options[:user_agent])
+          end
+      end
       # Attach signal handling if enabled
       SignalHandler.enable if @options[:enable_signal_handler]
 
@@ -170,7 +177,6 @@ module Polipus
           http  =  HTTP.new(@options)
           queue =  queue_factory
           queue.process(false, @options[:queue_timeout]) do |message|
-
             next if message.nil?
 
             execute_plugin 'on_message_received'
@@ -194,12 +200,12 @@ module Polipus
 
             execute_plugin 'on_before_download'
 
-            pages = http.fetch_pages(url, page.referer, page.depth)
+            pages = http.fetch_pages(url, page.referer, page.depth, page.user_data)
             if pages.count > 1
               rurls = pages.map { |e| e.url.to_s }.join(' --> ')
               @logger.info { "Got redirects! #{rurls}" }
               page = pages.pop
-              page.aliases = pages.map { |e| e.url }
+              page.aliases = pages.map(&:url)
               if page_exists? page
                 @logger.info { "[worker ##{worker_number}] Page (#{page.url}) already stored." }
                 queue.commit
@@ -253,7 +259,7 @@ module Polipus
         end
       end
 
-      @workers_pool.each { |w| w.join }
+      @workers_pool.each(&:join)
       @on_crawl_end.each { |e| e.call(self) }
       execute_plugin 'on_crawl_end'
     end
@@ -474,7 +480,7 @@ module Polipus
         next unless p.respond_to?(method)
         @logger.info { "Running plugin method #{method} on #{k}" }
         ret_val = p.send(method, self)
-        instance_eval(&ret_val) if ret_val.kind_of? Proc
+        instance_eval(&ret_val) if ret_val.is_a? Proc
       end
     end
   end

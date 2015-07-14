@@ -35,37 +35,39 @@ module Polipus
     # Fetch a single Page from the response of an HTTP request to *url*.
     # Just gets the final destination page.
     #
-    def fetch_page(url, referer = nil, depth = nil)
-      fetch_pages(url, referer, depth).last
+    def fetch_page(url, referer = nil, depth = nil, user_data = nil)
+      fetch_pages(url, referer, depth, user_data).last
     end
 
     #
     # Create new Pages from the response of an HTTP request to *url*,
     # including redirects
     #
-    def fetch_pages(url, referer = nil, depth = nil)
+    def fetch_pages(url, referer = nil, depth = nil, user_data = nil)
       url = URI(url)
       pages = []
       get(url, referer) do |response, code, location, redirect_to, response_time|
         handle_compression response
-        pages << Page.new(location, body: response.body,
-                                    code: code,
-                                    headers: response.to_hash,
-                                    referer: referer,
-                                    depth: depth,
-                                    redirect_to: redirect_to,
-                                    response_time: response_time,
-                                    fetched_at: Time.now.to_i)
+        page = Page.new(location, body: response.body,
+                                  code: code,
+                                  headers: response.to_hash,
+                                  referer: referer,
+                                  depth: depth,
+                                  redirect_to: redirect_to,
+                                  response_time: response_time,
+                                  fetched_at: Time.now.to_i)
+        page.user_data = user_data unless user_data.nil?
+        pages << page
       end
-
       pages
     rescue *RESCUABLE_ERRORS => e
       if verbose?
         puts e.inspect
         puts e.backtrace
       end
-
-      [Page.new(url, error: e, referer: referer, depth: depth)]
+      page = Page.new(url, error: e, referer: referer, depth: depth)
+      page.user_data = user_data unless user_data.nil?
+      [page]
     end
 
     #
@@ -80,7 +82,11 @@ module Polipus
     # or nil if no such option is set
     #
     def user_agent
-      @opts[:user_agent]
+      if @opts[:user_agent].respond_to?(:sample)
+        @opts[:user_agent].sample
+      else
+        @opts[:user_agent]
+      end
     end
 
     #
@@ -108,7 +114,7 @@ module Polipus
     # The proxy password
     #
     def proxy_pass
-      #return proxy_host_port[3] unless @opts[:proxy_host_port].nil?
+      # return proxy_host_port[3] unless @opts[:proxy_host_port].nil?
       @opts[:proxy_pass].respond_to?(:call) ? @opts[:proxy_pass].call(self) : @opts[:proxy_pass]
     end
 
@@ -162,7 +168,13 @@ module Polipus
 
         response, response_time = get_response(loc, referer)
         code = Integer(response.code)
-        redirect_to = response.is_a?(Net::HTTPRedirection) ? URI(response['location']).normalize : nil
+        redirect_to =
+          begin
+            response.is_a?(Net::HTTPRedirection) ? URI(response['location']).normalize : nil
+          rescue URI::InvalidURIError => e
+            @opts[:logger].debug { "Request #{url} got #{e}" } if @opts[:logger]
+            nil
+          end
         yield response, code, loc, redirect_to, response_time
         limit -= 1
         break unless (loc = redirect_to) && allowed?(redirect_to, url) && limit > 0
@@ -233,7 +245,7 @@ module Polipus
 
       # Block has higher priority
       unless @opts[:proxy_host_port].nil?
-        p_host, p_port, p_user, p_pass = proxy_host_port 
+        p_host, p_port, p_user, p_pass = proxy_host_port
       else
         p_host = proxy_host
         p_port = proxy_port
